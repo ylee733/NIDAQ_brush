@@ -4,9 +4,9 @@ licks, valve, and motor code
 nidaq contains trial structure, mirrors for opto, data collection
 */ 
 
-#define enA 9 // Power
-#define in1 6 // Direction
-#define in2 7 // Direction
+#define enA 11 // Power
+#define in1 12 // Direction
+#define in2 13 // Direction
 
 // name arduino pin numbers
 const int lick_from_mouse = 0;  
