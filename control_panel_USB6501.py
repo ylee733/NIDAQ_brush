@@ -3,11 +3,13 @@ import numpy as np
 import scipy.signal
 import matplotlib.pyplot as plt
 import time
+from time import gmtime, strftime
 import compress_pickle as pickle
 from json import (load as jsonload, dump as jsondump)
 import os
 import PySimpleGUI as sg
 import threading
+
 
 SETTINGS_FILE = os.path.join(os.getcwd(), r'settings_file.cfg') #os.path.dirname(__file__)
 DEFAULT_SETTINGS = {   
@@ -129,6 +131,7 @@ def runTask(di_task, do_task, taskParameters):
     di_data = {} ## dictionary that saves digital inputs coming from the daq
     do_data = {}
     results = []
+    trial_lickTimes = []
     originalProb = taskParameters['goProbability']
     #taskParameters['toneDuration'] = 0.02 ## hard coding this because the actual duration is set by the arduino
     if taskParameters['save']:
@@ -139,6 +142,7 @@ def runTask(di_task, do_task, taskParameters):
         lickTimes, result = runTrial(di_task, do_task, taskParameters)
 
         results.append(result)
+        trial_lickTimes.append(lickTimes)
         temp = np.array(results)
         try:
             hitRate = np.sum(temp=='hit')/(np.sum(temp=='hit')+np.sum(temp=='miss')+1)
@@ -160,15 +164,12 @@ def runTask(di_task, do_task, taskParameters):
         else:
             taskParameters['goProbability'] = originalProb
 
-        if taskParameters['save'] and trial % 50 == 0: ## save every fifty trials
+        if taskParameters['save'] and trial % 5 == 0: ## save every fifty trials
             outDict = {}
 
             outDict['taskParameters'] = taskParameters
-            outDict['di_data'] = {**di_data}
-            outDict['di_channels'] = di_task.channel_names
-            outDict['do_data'] = {**do_data}
-            outDict['do_channels'] = do_task.channel_names
             outDict['results'] = np.array(results)
+            outDict['lickTimes'] = trial_lickTimes
             pickle.dump(outDict,fileName)
 
     print('\n\nTask Finished, {} rewards delivered\n'.format(np.sum(temp=='hit')))
@@ -177,14 +178,9 @@ def runTask(di_task, do_task, taskParameters):
     if taskParameters['save']:
         print('...saving data...\n')
         outDict = {}
-
         outDict['taskParameters'] = taskParameters
-        outDict['di_data'] = {**di_data}
-        outDict['di_channels'] = di_task.channel_names
-        outDict['do_data'] = {**do_data}
-        outDict['do_channels'] = do_task.channel_names
         outDict['results'] = np.array(results)
-
+        outDict['lickTimes'] = trial_lickTimes
         pickle.dump(outDict,fileName)
         print('Data saved in {}\n'.format(fileName))
 
@@ -194,11 +190,13 @@ def runTrial(di_task, do_task, taskParameters):
     ## Calculated Parameters
     trial_start_time = time.time()
     goTrial = np.random.binomial(1,taskParameters['goProbability'])
-    do_task.write([True,False,False,False],auto_start=True)
+    do_task.write(np.array([True,False,False,False]).T,auto_start=True,timeout=nidaqmx.constants.WAIT_INFINITELY)
+    time.sleep(0.01)
     stimStarted = False
     stimEnded = False
+    rewardStarted = False
     rewardEnded = False
-    licktime= trial_start_time - 0.05
+    licktime = trial_start_time - 0.05
     lickTimes = []
     result = 'none'
     while True:
@@ -207,36 +205,50 @@ def runTrial(di_task, do_task, taskParameters):
         if di_data:  
             if time.time() > licktime + 0.05:
                 licktime = time.time()
-                lickTimes.append(licktime)
+                lickTimes.append(licktime - trial_start_time)
                 if (licktime > trial_start_time + taskParameters['stimTime']) & (licktime < trial_start_time + taskParameters['stimTime']+taskParameters['rewardWindowDuration']):
                     if goTrial:
                         result = 'hit'
                     else:
                         result = 'FA'
-                    
+                   
         if (time.time() - trial_start_time > taskParameters["stimTime"]) & (stimStarted==False):
+            print('starting Stim')
             stimStarted = True
             if goTrial:
-                do_task.write([True,True,False,True],auto_start=True)
+                do_task.write([True,True,False,False],auto_start=True)
             else:
                 do_task.write([True,False,True,False],auto_start=True)
 
-        if stimStarted & (time.time() - trial_start_time > taskParameters['stimTime'] + taskParameters['stimDuration']):
+        if (time.time() - trial_start_time > taskParameters["stimTime"] + 0.05) & (rewardStarted == False):
+            print('starting rew')
+            rewardStarted = True
+            if goTrial:
+                do_task.write([True,True,False,True],auto_start=True)
+
+            else:
+                do_task.write([True,False,True,False],auto_start=True)  
+   
+
+        if (stimStarted == True) & (stimEnded == False) & (time.time() - trial_start_time > taskParameters['stimTime'] + taskParameters['stimDuration']):
+            print('ending stim')
             stimEnded = True
             if goTrial:
                 do_task.write([True,False,False,True],auto_start=True)
-
             else:
                 do_task.write([True,False,False,False],auto_start=True)
  
-        if stimEnded & (time.time() - trial_start_time > taskParameters['stimTime'] + taskParameters['rewardWindowDuration']):
+        if (rewardStarted == True) & (rewardEnded == False) & (time.time() - trial_start_time > taskParameters['stimTime'] + taskParameters['rewardWindowDuration']):
+            print('ending reward')
             do_task.write([True,False,False,False],auto_start=True)
             rewardEnded = True
 
         if rewardEnded & (time.time() - trial_start_time > taskParameters['trialDuration']):
+            print('ending trial')
             do_task.write([False,False,False,False],auto_start=True)
             break
-    
+
+    do_task.write([False,False,False,False],auto_start=True)
     if result =='none':
         if goTrial:
             result = 'miss'
@@ -379,15 +391,15 @@ def the_gui():
                 [sg.Text('Reward Window Duration (s)',size=(textWidth,1)),sg.Input(default_text=1,size=(inputWidth,1),key='-RewardWindowDuration-'),sg.Check('Reward All Go Trials?',key='-RewardAllGos-')],
                 [sg.Text('Go Probability',size=(textWidth,1)),sg.Input(default_text=0.5,size=(inputWidth,1),key='-GoProbability-'),sg.Check('Alternate trials?',key='-Alternate-')],
                 [sg.Text('Force (mN)',size=(textWidth,1)),sg.Input(default_text=50,size=(inputWidth,1),key='-Force-'),sg.Check('Vary force?',key='-VaryForce-')],
-                [sg.Text('Force Ramp Time (s)',size=(textWidth,1)),sg.Input(default_text=1,size=(inputWidth,1),key='-stimTime-')],
+                [sg.Text('Stim Onset',size=(textWidth,1)),sg.Input(default_text=1,size=(inputWidth,1),key='-stimTime-')],
                 [sg.Text('Stim Duration (s)',size=(textWidth,1)),sg.Input(default_text=3,size=(inputWidth,1),key='-StimDuration-')],
-                [sg.Text('Save Path',size=(textWidth,1)),sg.Input(os.path.normpath('E://DATA/Behavior/'),size=(20,1),key='-SavePath-'),
+                [sg.Text('Save Path',size=(textWidth,1)),sg.Input(os.path.normpath('C:/Users/Lab/Desktop/Direction Project'),size=(20,1),key='-SavePath-'),
                  sg.Check('Save?',default=True,key='-Save-')],
                 [sg.Text('Animal ID',size=(textWidth,1)),sg.Input(size=(20,1),key='-Animal-')],
                 [sg.Button('Run Task',size=(30,2)),sg.Button('Dispense Reward',size=(30,2))],
                 [sg.Button('Update Parameters'),sg.Button('Exit'),sg.Button('Setup DAQ'),
-                 sg.Input(key='Load Parameters', visible=False, enable_events=True), sg.FileBrowse('Load Parameters',initial_folder='Z:\\HarveyLab\\Tier1\\Alan\\Behavior'),sg.Button('Test Lick Monitor')]]
-             #[sg.Output(size=(70,20),key='-OUTPUT-')]]
+                 sg.Input(key='Load Parameters', visible=False, enable_events=True), sg.FileBrowse('Load Parameters',initial_folder='Z:\\HarveyLab\\Tier1\\Alan\\Behavior'),sg.Button('Test Lick Monitor')],
+             [sg.Output(size=(70,20),key='-OUTPUT-')]]
     
     window = sg.Window('Sustained Detection Task',layout)
     
