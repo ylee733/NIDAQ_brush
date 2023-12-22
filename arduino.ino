@@ -9,13 +9,13 @@ nidaq contains trial structure, mirrors for opto, data collection
 #define in2 13 // Direction
 
 // name arduino pin numbers
-const int lick_from_mouse = 0;  
-const int lick_to_NIDAQ = 0;  
-const int solenoid = 0; 
-const int dir1Pin = 0;    
-const int dir2Pin = 0;   
-const int reward_window = 0; 
-const int trial_start = 0; 
+const int lick_from_mouse = 9;  
+const int lick_to_NIDAQ = 9;  
+const int solenoid = 9; 
+const int dir1Pin = 3;    
+const int dir2Pin = 4;   
+const int reward_window = 5; 
+const int trial_start = 2; 
 
 unsigned long iti = 5000;
 unsigned long reward_time = millis();
