@@ -25,6 +25,7 @@ unsigned long current_time = millis();
 
 // constants
 const int solenoidOpenDur = 50;
+unsigned long solenoidStartTime = 0;
 
 // is pin output or input
 void setup(){
@@ -57,10 +58,14 @@ void loop(){
   if (dir1 ==  HIGH) {
     startMotor(HIGH, LOW, 50);  // Rotate clockwise
     // Serial.print(F("dir1HIGH\n"));
+    if(millis() > solenoidStartTime + 4000){
+    Serial.print(millis());
+    Serial.println();
      digitalWrite(solenoid, HIGH);
      delay(solenoidOpenDur);
-     digitalWrite(solenoid, LOW);  
-
+     digitalWrite(solenoid, LOW); 
+    solenoidStartTime = millis();
+    }
   } else if (dir2 == HIGH) {
     startMotor(LOW, HIGH, 50);  // Rotate counterclockwise
    // Serial.print(F("dir2HIGH)\n"));
